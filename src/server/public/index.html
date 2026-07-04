@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MightyVision · WhatsApp Setup</title>
+    <style>
+      :root { --bg:#0f172a; --card:#1e293b; --line:#334155; --txt:#e2e8f0; --muted:#94a3b8; --brand:#22c55e; --accent:#38bdf8; }
+      * { box-sizing: border-box; }
+      body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--txt); display:flex; min-height:100vh; align-items:center; justify-content:center; padding:24px; }
+      .card { width:100%; max-width:460px; background:var(--card); border:1px solid var(--line); border-radius:16px; padding:28px; box-shadow:0 10px 40px rgba(0,0,0,.4); }
+      h1 { margin:0 0 4px; font-size:20px; }
+      .sub { color:var(--muted); font-size:13px; margin-bottom:20px; }
+      .status { display:flex; align-items:center; gap:10px; padding:12px 14px; border-radius:10px; background:#0b1220; border:1px solid var(--line); margin-bottom:18px; font-size:14px; }
+      .dot { width:10px; height:10px; border-radius:50%; background:var(--muted); flex:0 0 auto; }
+      .dot.connected { background:var(--brand); box-shadow:0 0 0 4px rgba(34,197,94,.2); }
+      .dot.pairing { background:#f59e0b; }
+      .dot.connecting { background:var(--accent); }
+      .dot.disconnected, .dot.logged_out { background:#ef4444; }
+      label { display:block; font-size:13px; color:var(--muted); margin:14px 0 6px; }
+      input { width:100%; padding:12px 14px; border-radius:10px; border:1px solid var(--line); background:#0b1220; color:var(--txt); font-size:15px; }
+      button { width:100%; margin-top:16px; padding:12px 14px; border:0; border-radius:10px; background:var(--brand); color:#04210f; font-weight:700; font-size:15px; cursor:pointer; }
+      button.secondary { background:transparent; color:var(--muted); border:1px solid var(--line); margin-top:10px; }
+      button:disabled { opacity:.5; cursor:not-allowed; }
+      .code { text-align:center; margin:18px 0; }
+      .code .digits { font-size:34px; letter-spacing:6px; font-weight:800; color:var(--brand); }
+      .code .hint { color:var(--muted); font-size:13px; margin-top:8px; line-height:1.5; }
+      .qr { text-align:center; margin:18px 0; }
+      .qr img { width:220px; height:220px; background:#fff; padding:10px; border-radius:12px; }
+      .detail { color:var(--muted); font-size:13px; min-height:18px; margin-top:6px; }
+      .hidden { display:none; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>🦜 MightyVision WhatsApp</h1>
+      <div class="sub">Link your dedicated bot number — no QR scanning required.</div>
+
+      <div class="status">
+        <span id="dot" class="dot"></span>
+        <span id="statusText">Loading…</span>
+      </div>
+
+      <div id="connectPane">
+        <label for="phone">Bot phone number (with country code)</label>
+        <input id="phone" inputmode="numeric" placeholder="e.g. 9198XXXXXXXX" />
+        <button id="connectBtn">Get pairing code</button>
+      </div>
+
+      <div id="codePane" class="code hidden">
+        <div class="digits" id="codeDigits">––––––––</div>
+        <div class="hint">
+          On your phone: <b>WhatsApp → Linked Devices → Link a device →
+          “Link with phone number instead”</b>, then enter this code.
+        </div>
+      </div>
+
+      <div id="qrPane" class="qr hidden">
+        <img id="qrImg" alt="QR code" />
+        <div class="hint">Or scan this QR with WhatsApp.</div>
+      </div>
+
+      <div class="detail" id="detail"></div>
+      <button class="secondary hidden" id="disconnectBtn">Disconnect</button>
+    </div>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const labels = {
+        idle: 'Not connected', connecting: 'Connecting…', pairing: 'Waiting for pairing…',
+        connected: 'Connected', disconnected: 'Disconnected', logged_out: 'Logged out',
+      };
+
+      async function refresh() {
+        try {
+          const s = await (await fetch('/api/status')).json();
+          $('dot').className = 'dot ' + (s.status || '');
+          $('statusText').textContent = labels[s.status] || s.status || 'Unknown';
+          $('detail').textContent = s.detail || '';
+
+          const pairing = s.status === 'pairing';
+          $('codePane').classList.toggle('hidden', !(pairing && s.pairingCode));
+          if (s.pairingCode) $('codeDigits').textContent = s.pairingCode;
+
+          $('qrPane').classList.toggle('hidden', !(pairing && s.qrDataUrl));
+          if (s.qrDataUrl) $('qrImg').src = s.qrDataUrl;
+
+          const connected = s.status === 'connected';
+          $('connectPane').classList.toggle('hidden', connected || pairing);
+          $('disconnectBtn').classList.toggle('hidden', !connected);
+        } catch (e) {
+          $('statusText').textContent = 'Server unreachable';
+        }
+      }
+
+      $('connectBtn').addEventListener('click', async () => {
+        const phoneNumber = $('phone').value.replace(/\D/g, '');
+        $('connectBtn').disabled = true;
+        $('connectBtn').textContent = 'Starting…';
+        try {
+          await fetch('/api/connect', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phoneNumber }),
+          });
+        } finally {
+          setTimeout(() => { $('connectBtn').disabled = false; $('connectBtn').textContent = 'Get pairing code'; }, 4000);
+        }
+      });
+
+      $('disconnectBtn').addEventListener('click', async () => {
+        await fetch('/api/disconnect', { method: 'POST' });
+      });
+
+      refresh();
+      setInterval(refresh, 2000);
+    </script>
+  </body>
+</html>
